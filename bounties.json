@@ -7,7 +7,14 @@
       "priority": "medium",
       "points": 50,
       "description": "This is an example bounty. Replace with actual bounties."
+    },
+    {
+      "page": "api-reference/style-rules.mdx",
+      "title": "Extend style rules documentation",
+      "description": "Add more specific examples of where this feature could be used.",
+      "points": 50,
+      "priority": "medium",
+      "id": "api-reference-style-rules-mdx-1765911712065"
     }
   ]
 }
-

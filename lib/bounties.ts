@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export interface Bounty {
@@ -46,6 +46,28 @@ export function getBountyById(id: string): Bounty | undefined {
 }
 
 /**
+ * Add a new bounty to the config file
+ */
+export function addBounty(bounty: Omit<Bounty, 'id'>): Bounty {
+  const configPath = join(process.cwd(), 'bounties.json');
+  const config: BountiesConfig = existsSync(configPath)
+    ? JSON.parse(readFileSync(configPath, 'utf-8'))
+    : { bounties: [] };
+  
+  // Generate ID from page path and timestamp
+  const id = `${bounty.page.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`;
+  const newBounty: Bounty = { ...bounty, id };
+  
+  config.bounties.push(newBounty);
+  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  
+  // Clear cache
+  cachedBounties = null;
+  
+  return newBounty;
+}
+
+/**
  * Find bounties that match a file path
  * Matches exact paths or paths that end with the bounty page
  */
@@ -78,4 +100,3 @@ export function findBountiesForFile(filePath: string): Bounty[] {
 export function clearBountiesCache(): void {
   cachedBounties = null;
 }
-

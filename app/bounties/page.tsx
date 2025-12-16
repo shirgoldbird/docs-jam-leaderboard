@@ -53,12 +53,20 @@ export default function BountiesPage() {
                 Available documentation improvement tasks
               </p>
             </div>
-            <Link
-              href="/"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              View Leaderboard
-            </Link>
+            <div className="flex gap-4">
+              <Link
+                href="/create-bounty"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Create Bounty
+              </Link>
+              <Link
+                href="/"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                View Leaderboard
+              </Link>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
