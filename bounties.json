@@ -1,0 +1,13 @@
+{
+  "bounties": [
+    {
+      "id": "example-bounty",
+      "page": "docs/example.md",
+      "title": "Example Bounty",
+      "priority": "medium",
+      "points": 50,
+      "description": "This is an example bounty. Replace with actual bounties."
+    }
+  ]
+}
+
