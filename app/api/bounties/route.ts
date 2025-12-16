@@ -4,7 +4,7 @@ import { loadClaims } from '@/lib/leaderboard';
 
 export async function GET() {
   try {
-    const bounties = loadBounties();
+    const bounties = await loadBounties();
     const claimsData = loadClaims();
     const claimedBountyIds = new Set(claimsData.claims.map(c => c.bountyId));
     

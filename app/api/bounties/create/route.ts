@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { Octokit } from '@octokit/rest';
-import { addBounty } from '@/lib/bounties';
+import { generateBountyId } from '@/lib/bounties';
 
 const GITHUB_ORG = process.env.GITHUB_ORG || 'DeepLcom';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'api-docs';
@@ -29,8 +29,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Add bounty to config
-    const bounty = addBounty({
+    // Generate bounty ID
+    const bountyId = generateBountyId({
       page,
       title,
       description,
@@ -55,7 +55,7 @@ ${description || 'No description provided.'}
 
 This bounty was created via the Docs Jam Leaderboard. To claim this bounty, open a PR that modifies \`${page}\` and get it merged!
 
-**Bounty ID:** \`${bounty.id}\`
+**Bounty ID:** \`${bountyId}\`
 `;
 
     const issue = await octokit.issues.create({
@@ -68,7 +68,14 @@ This bounty was created via the Docs Jam Leaderboard. To claim this bounty, open
 
     return NextResponse.json({
       success: true,
-      bounty,
+      bounty: {
+        id: bountyId,
+        page,
+        title,
+        description,
+        points: parseInt(points),
+        priority,
+      },
       issue: {
         number: issue.data.number,
         url: issue.data.html_url,

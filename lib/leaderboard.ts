@@ -153,7 +153,7 @@ export async function syncClaims(): Promise<{ newClaims: number; totalClaims: nu
     
     // Check each file in the PR
     for (const file of pr.files) {
-      const matchingBounties = findBountiesForFile(file.filename);
+      const matchingBounties = await findBountiesForFile(file.filename);
       
       for (const bounty of matchingBounties) {
         // Only claim if this bounty hasn't been claimed yet
