@@ -36,8 +36,17 @@ Edit `bounties.json` to define bounties for documentation pages. Each bounty sho
 
 ## How It Works
 
-1. The system monitors the GitHub repository for merged PRs
-2. When a PR is merged, it checks if any changed files match bounty pages
-3. The first merged PR for each bounty awards points to the contributor
-4. The leaderboard displays contributors ranked by total points
+1. The system tracks open PRs and saves them to `data/tracked-prs.json`
+2. On each sync, it fetches current open PRs and updates the tracking list
+3. It checks tracked PRs that have been closed to see if they were merged
+4. For merged PRs, it checks if any changed files match bounty pages
+5. The first merged PR for each bounty awards points to the contributor
+6. The leaderboard displays contributors ranked by total points
+
+### Efficiency
+
+The system only checks PRs that were previously open (tracked), making it much more efficient than scanning all PRs. This approach:
+- Reduces API calls significantly
+- Avoids rate limit issues
+- Only processes relevant PRs (those that were open when tracking started)
 

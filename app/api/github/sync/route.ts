@@ -10,14 +10,24 @@ export async function GET() {
       ...result,
       message: `Synced claims. ${result.newClaims} new claims added.`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error syncing claims:', error);
+    
+    // Check if it's a rate limit error
+    const isRateLimit = error?.status === 403 || 
+                       error?.status === 429 ||
+                       (error?.message && error.message.includes('rate limit'));
+    
     return NextResponse.json(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
+        isRateLimit,
+        message: isRateLimit 
+          ? 'Rate limit exceeded. Please wait a few minutes and try again. The sync will continue from where it left off.'
+          : 'Error syncing claims. Please try again.',
       },
-      { status: 500 }
+      { status: isRateLimit ? 429 : 500 }
     );
   }
 }

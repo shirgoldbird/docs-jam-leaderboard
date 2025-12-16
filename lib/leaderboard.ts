@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { findBountiesForFile } from './bounties';
-import { getMergedPRsWithFiles } from './github';
+import { getMergedPRsWithFiles, getPullRequests } from './github';
+import { updateTrackedPRs, getTrackedPRsToCheck, removeTrackedPR } from './tracked-prs';
 
 export interface Claim {
   bountyId: string;
@@ -98,9 +99,43 @@ export function addClaim(claim: Claim): void {
 
 /**
  * Sync claims by checking merged PRs against bounties
+ * Uses tracked PRs system to only check relevant PRs
  */
 export async function syncClaims(): Promise<{ newClaims: number; totalClaims: number }> {
-  const mergedPRs = await getMergedPRsWithFiles();
+  console.log('Starting sync: Fetching open PRs...');
+  
+  // Step 1: Fetch current open PRs and update tracking
+  const openPRs = await getPullRequests('open');
+  console.log(`Found ${openPRs.length} open PRs`);
+  updateTrackedPRs(openPRs);
+  
+  // Step 2: Get tracked PRs that are closed (might be merged)
+  const trackedPRsToCheck = getTrackedPRsToCheck();
+  console.log(`Checking ${trackedPRsToCheck.length} closed tracked PRs for merge status...`);
+  
+  if (trackedPRsToCheck.length === 0) {
+    console.log('No closed PRs to check');
+    const finalData = loadClaims();
+    return {
+      newClaims: 0,
+      totalClaims: finalData.claims.length,
+    };
+  }
+  
+  // Step 3: Check which of these closed PRs are actually merged
+  const prNumbersToCheck = trackedPRsToCheck.map(pr => pr.number);
+  const mergedPRs = await getMergedPRsWithFiles(prNumbersToCheck);
+  
+  if (mergedPRs.length === 0) {
+    console.log('No newly merged PRs found');
+    const finalData = loadClaims();
+    return {
+      newClaims: 0,
+      totalClaims: finalData.claims.length,
+    };
+  }
+  
+  // Step 4: Process merged PRs and create claims
   const existingData = loadClaims();
   const existingBountyIds = new Set(existingData.claims.map(c => c.bountyId));
   
@@ -140,9 +175,13 @@ export async function syncClaims(): Promise<{ newClaims: number; totalClaims: nu
         }
       }
     }
+    
+    // Remove this PR from tracking since we've processed it
+    removeTrackedPR(pr.number);
   }
   
   const finalData = loadClaims();
+  console.log(`Sync complete: ${newClaimsCount} new claims, ${finalData.claims.length} total claims`);
   return {
     newClaims: newClaimsCount,
     totalClaims: finalData.claims.length,

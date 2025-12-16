@@ -7,6 +7,55 @@ const octokit = new Octokit({
 const GITHUB_ORG = process.env.GITHUB_ORG || 'DeepLcom';
 const GITHUB_REPO = process.env.GITHUB_REPO || 'api-docs';
 
+/**
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Check if error is a rate limit error
+ */
+function isRateLimitError(error: any): boolean {
+  return error?.status === 403 || 
+         error?.status === 429 ||
+         (error?.message && error.message.includes('rate limit'));
+}
+
+/**
+ * Retry a function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      if (isRateLimitError(error) && attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        const retryAfter = error?.response?.headers?.['retry-after'];
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay;
+        
+        console.log(`Rate limit hit, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+        await sleep(waitTime);
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  
+  throw lastError;
+}
+
 export interface GitHubMember {
   login: string;
   id: number;
@@ -47,15 +96,22 @@ export async function getOrgMembers(): Promise<GitHubMember[]> {
     let hasMore = true;
 
     while (hasMore) {
-      const response = await octokit.orgs.listMembers({
-        org: GITHUB_ORG,
-        per_page: 100,
-        page,
-      });
+      const response = await retryWithBackoff(() =>
+        octokit.orgs.listMembers({
+          org: GITHUB_ORG,
+          per_page: 100,
+          page,
+        })
+      );
 
       members.push(...response.data);
       hasMore = response.data.length === 100;
       page++;
+      
+      // Add delay between pages to avoid secondary rate limits
+      if (hasMore) {
+        await sleep(500);
+      }
     }
 
     return members;
@@ -75,15 +131,17 @@ export async function getPullRequests(state: 'open' | 'closed' | 'all' = 'all'):
     let hasMore = true;
 
     while (hasMore) {
-      const response = await octokit.pulls.list({
-        owner: GITHUB_ORG,
-        repo: GITHUB_REPO,
-        state,
-        per_page: 100,
-        page,
-        sort: 'updated',
-        direction: 'desc',
-      });
+      const response = await retryWithBackoff(() =>
+        octokit.pulls.list({
+          owner: GITHUB_ORG,
+          repo: GITHUB_REPO,
+          state,
+          per_page: 100,
+          page,
+          sort: 'updated',
+          direction: 'desc',
+        })
+      );
 
       const prData = response.data.map(pr => ({
         number: pr.number,
@@ -102,6 +160,11 @@ export async function getPullRequests(state: 'open' | 'closed' | 'all' = 'all'):
       prs.push(...prData);
       hasMore = response.data.length === 100;
       page++;
+      
+      // Add delay between pages to avoid secondary rate limits
+      if (hasMore) {
+        await sleep(500);
+      }
     }
 
     return prs;
@@ -116,12 +179,14 @@ export async function getPullRequests(state: 'open' | 'closed' | 'all' = 'all'):
  */
 export async function getPRFiles(prNumber: number): Promise<PRFile[]> {
   try {
-    const response = await octokit.pulls.listFiles({
-      owner: GITHUB_ORG,
-      repo: GITHUB_REPO,
-      pull_number: prNumber,
-      per_page: 100,
-    });
+    const response = await retryWithBackoff(() =>
+      octokit.pulls.listFiles({
+        owner: GITHUB_ORG,
+        repo: GITHUB_REPO,
+        pull_number: prNumber,
+        per_page: 100,
+      })
+    );
 
     return response.data.map(file => ({
       filename: file.filename,
@@ -132,25 +197,92 @@ export async function getPRFiles(prNumber: number): Promise<PRFile[]> {
     }));
   } catch (error) {
     console.error(`Error fetching files for PR #${prNumber}:`, error);
+    // Return empty array instead of throwing to allow processing to continue
     return [];
   }
 }
 
 /**
- * Get merged pull requests with their file changes
+ * Get a single PR's details (to check if it's merged)
  */
-export async function getMergedPRsWithFiles(): Promise<(PullRequest & { files: PRFile[] })[]> {
-  const prs = await getPullRequests('closed');
-  const mergedPRs = prs.filter(pr => pr.merged_at !== null);
+export async function getPRDetails(prNumber: number): Promise<PullRequest | null> {
+  try {
+    const response = await retryWithBackoff(() =>
+      octokit.pulls.get({
+        owner: GITHUB_ORG,
+        repo: GITHUB_REPO,
+        pull_number: prNumber,
+      })
+    );
 
-  // Fetch files for each merged PR
-  const prsWithFiles = await Promise.all(
-    mergedPRs.map(async (pr) => {
-      const files = await getPRFiles(pr.number);
-      return { ...pr, files };
-    })
-  );
+    return {
+      number: response.data.number,
+      title: response.data.title,
+      user: {
+        login: response.data.user?.login || 'unknown',
+        avatar_url: response.data.user?.avatar_url || '',
+        html_url: response.data.user?.html_url || '',
+      },
+      merged_at: response.data.merged_at,
+      state: response.data.state,
+      html_url: response.data.html_url,
+      created_at: response.data.created_at,
+    };
+  } catch (error) {
+    console.error(`Error fetching PR #${prNumber} details:`, error);
+    return null;
+  }
+}
 
+/**
+ * Get merged pull requests with their file changes
+ * Only checks tracked PRs that have been closed
+ */
+export async function getMergedPRsWithFiles(trackedPRNumbers: number[]): Promise<(PullRequest & { files: PRFile[] })[]> {
+  if (trackedPRNumbers.length === 0) {
+    return [];
+  }
+
+  console.log(`Checking ${trackedPRNumbers.length} tracked PRs for merge status...`);
+
+  const mergedPRs: PullRequest[] = [];
+  
+  // Check each tracked PR to see if it's been merged
+  for (let i = 0; i < trackedPRNumbers.length; i++) {
+    const prNumber = trackedPRNumbers[i];
+    
+    // Add delay between requests (except for the first one)
+    if (i > 0) {
+      await sleep(1000); // 1 second delay between checks
+    }
+    
+    console.log(`Checking PR #${prNumber} (${i + 1}/${trackedPRNumbers.length})...`);
+    const pr = await getPRDetails(prNumber);
+    
+    if (pr && pr.merged_at !== null) {
+      mergedPRs.push(pr);
+    }
+  }
+
+  console.log(`Found ${mergedPRs.length} newly merged PRs, fetching files...`);
+
+  // Fetch files for merged PRs
+  const prsWithFiles: (PullRequest & { files: PRFile[] })[] = [];
+  
+  for (let i = 0; i < mergedPRs.length; i++) {
+    const pr = mergedPRs[i];
+    
+    // Add delay between requests
+    if (i > 0) {
+      await sleep(1000);
+    }
+    
+    console.log(`Fetching files for PR #${pr.number} (${i + 1}/${mergedPRs.length})...`);
+    const files = await getPRFiles(pr.number);
+    prsWithFiles.push({ ...pr, files });
+  }
+
+  console.log(`Completed processing ${prsWithFiles.length} merged PRs`);
   return prsWithFiles;
 }
 

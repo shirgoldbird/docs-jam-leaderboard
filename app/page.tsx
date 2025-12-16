@@ -40,7 +40,10 @@ export default function Home() {
         await fetchLeaderboard();
         alert(`Sync complete! ${data.newClaims} new claims added.`);
       } else {
-        alert('Sync failed: ' + (data.error || 'Unknown error'));
+        const errorMsg = data.isRateLimit 
+          ? 'Rate limit exceeded. Please wait a few minutes and try again. The sync will continue from where it left off when you retry.'
+          : `Sync failed: ${data.error || 'Unknown error'}`;
+        alert(errorMsg);
       }
     } catch (error) {
       console.error('Error syncing:', error);

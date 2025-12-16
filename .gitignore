@@ -30,6 +30,7 @@ yarn-error.log*
 
 # data files
 /data/claims.json
+/data/tracked-prs.json
 
 # vercel
 .vercel
